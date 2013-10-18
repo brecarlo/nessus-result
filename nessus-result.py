@@ -38,7 +38,11 @@ def login(server, username, password):
     cookie = cookielib.CookieJar()
     opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cookie))
     param = urllib.urlencode({'login' : username, 'password' : password})
-    opener.open(server + '/login', param)
+    try:
+        opener.open(server + '/login', param)
+    except:
+        print("Unable to connect to server")
+        sys.exit(1)
     return opener
 
 def listResults(opener, server):
@@ -87,8 +91,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-s', '--server', type=str, help='Server name or IP', default='')
     parser.add_argument('--port', type=str, help='Port (default 8834)', default='8834')
-    parser.add_argument('-u', '--username', type=str, help='Username ()', default='')
-    parser.add_argument('-p', '--password', type=str, help='Password', default='')
+    parser.add_argument('-u', '--username', type=str, help='Username (if not specified, it will be prompted)', default='')
+    parser.add_argument('-p', '--password', type=str, help='Password (if not specified, it will be prompted)', default='')
 
     parser.add_argument('-l', action='store_true', help='List available results')
 
@@ -101,8 +105,13 @@ def main():
 
     options = parser.parse_args()
 
+    # Check options
+    if (options.server==''):
+        print("No server specified (-s)")
+        parser.print_help()
+        sys.exit(1)
     if (options.l==False and options.e==False and options.i==False):
-        print("No action specified [-l | -e | -i]")
+        print("No action specified (-l | -e | -i)")
         parser.print_help()
         sys.exit(1)
 
@@ -125,7 +134,7 @@ def main():
             print datetime.datetime.fromtimestamp(float(result['timestamp'])).strftime('%Y-%m-%d %H:%M:%S') + ' -- ' + result['name']
         sys.exit(0)
 
-    # Export resultss
+    # Export results
     if (options.e==True):
         results = listResults(opener, server)
         for result in results:
