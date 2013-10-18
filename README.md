@@ -1,4 +1,4 @@
 nessus-report
 =============
 
-Export / import  nessus results remotely via command line
+Remotely export / import  nessus results via command line.
