@@ -123,7 +123,7 @@ def main():
         results = listResults(opener, server)
         for result in results:
             print datetime.datetime.fromtimestamp(float(result['timestamp'])).strftime('%Y-%m-%d %H:%M:%S') + ' -- ' + result['name']
-        sys.exit(1)
+        sys.exit(0)
 
     # Export resultss
     if (options.e==True):
@@ -141,7 +141,7 @@ def main():
                     f.write(content)
                     f.close()
                     print "Done"
-        sys.exit(1)
+        sys.exit(0)
 
     # Import results
     if (options.i==True):
@@ -153,7 +153,7 @@ def main():
                 print ("Importing " + fileName + " ..."),
                 importResult(opener, server, fileName)
                 print "Done"
-        sys.exit(1)
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
