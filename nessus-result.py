@@ -42,13 +42,20 @@ def login(server, username, password):
     try:
         opener.open(server + '/login', param)
     except:
-        print("Unable to connect to server")
+        print("ERROR: Unable to connect to server.")
         sys.exit(1)
     return opener
 
+def sendCommand(opener, url, param=None):
+    try:
+        return opener.open(url, param)
+    except:
+        print("ERROR: Unable to connect to server. Check credentials, please.")
+        sys.exit(1)
+
 def listResults(opener, server):
     param = urllib.urlencode({'seq' : '1'})
-    resp = opener.open(server + '/report/list', param)
+    resp = sendCommand(opener, server + '/report/list', param)
     xmlResp = resp.read()
     resp.close()
     root = etree.fromstring(xmlResp)
@@ -57,12 +64,15 @@ def listResults(opener, server):
         resultId = result.find('name').text
         name = result.find('readableName').text
         timestamp = result.find('timestamp').text
-        results.append({'id':resultId, 'name':name, 'timestamp':timestamp})
+        # Select only 'completed' scan
+        status = result.find('status').text
+        if (status=='completed'):
+            results.append({'id':resultId, 'name':name, 'timestamp':timestamp})
     return results
 
 def exportResult(opener, server, resultId):
     param = urllib.urlencode({'report' : resultId})
-    resp = opener.open(server + '/file/report/download', param)
+    resp = sendCommand(opener, server + '/file/report/download', param)
     return resp.read()
 
 def importResult(opener, server, fileName):
@@ -79,12 +89,12 @@ def importResult(opener, server, fileName):
     payload=str().join(payload_temp)
     payload=payload.replace(fileName,fileNameModified,1)
     request = urllib2.Request(server + '/file/upload', payload, headers)
-    resp = opener.open(request)
+    resp = sendCommand(opener,request)
     resp.close()
 
     # Importing
     param = urllib.urlencode({'file' : fileNameModified, 'seq' : '1'})
-    resp = opener.open(server + '/file/report/import', param)
+    resp = sendCommand(opener,server + '/file/report/import', param)
     resp.close()
 
 def main():
@@ -167,6 +177,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
