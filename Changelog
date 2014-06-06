@@ -1,0 +1,8 @@
+	ChangeLog file for nessus-result
+	
+Changes in 0.2
+- Add folder management (see help)
+- Add "print version" argument
+- Use Json protocol instead of XML
+- Change some arguments
+

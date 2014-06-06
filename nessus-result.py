@@ -25,15 +25,15 @@
 #    Basic usage:
 #    - List available results:    nessus-result.py -s SERVER -l
 #    - Export results:            nessus-result.py -s SERVER -e
-#    - Import results:            nessus-result.py -s SERVER -i -r <file list>
+#    - Import results:            nessus-result.py -s SERVER -i <file list>
 #
 #    For more options, see nessus-result.py -h
 
 
 import sys, os, string, argparse, datetime
-import urllib, urllib2, getpass, cookielib, fnmatch
-import xml.etree.ElementTree as etree
+import urllib, urllib2, getpass, cookielib, fnmatch, json
 from poster.encode import multipart_encode
+
 
 def login(server, username, password):
     cookie = cookielib.CookieJar()
@@ -46,6 +46,7 @@ def login(server, username, password):
         sys.exit(1)
     return opener
 
+
 def sendCommand(opener, url, param=None):
     try:
         return opener.open(url, param)
@@ -53,29 +54,79 @@ def sendCommand(opener, url, param=None):
         print("ERROR: Unable to connect to server. Check credentials, please.")
         sys.exit(1)
 
-def listResults(opener, server):
-    param = urllib.urlencode({'seq' : '1'})
-    resp = sendCommand(opener, server + '/report/list', param)
-    xmlResp = resp.read()
+
+def listTags(opener, server):
+    param = urllib.urlencode({'seq' : '1','json':'1'})
+    resp = sendCommand(opener, server + '/tag/list', param)
+    data = json.loads(resp.read())
     resp.close()
-    root = etree.fromstring(xmlResp)
-    results=[]
-    for result in root.findall('.//report'):
-        resultId = result.find('name').text
-        name = result.find('readableName').text
-        timestamp = result.find('timestamp').text
-        # Select only 'completed' scan
-        status = result.find('status').text
-        if (status=='completed'):
-            results.append({'id':resultId, 'name':name, 'timestamp':timestamp})
+
+    results={}
+
+    for result in data['reply']['contents']['tags']:
+        tagId = result['id']
+        tagName = result['name']
+        results[tagId]=tagName
+
     return results
+
+        
+def listResults(opener, server, tags):
+    param = urllib.urlencode({'seq' : '1','json':'1'})
+    resp = sendCommand(opener, server + '/result/list', param)
+    data = json.loads(resp.read())
+    resp.close()
+    
+    results=[]
+            
+    for result in data['reply']['contents']['result']:
+        resultId = result['id']
+        name = result['name']
+        timestamp = result['timestamp']
+        tag = result['tags'][0]      
+        # Select only 'completed' scan
+        status = result['status']
+        if (status=='completed'):
+            results.append({'id':resultId, 'name':name, 'timestamp':timestamp, 'folder' : tags[tag]})
+  
+    return results
+
 
 def exportResult(opener, server, resultId):
     param = urllib.urlencode({'report' : resultId})
     resp = sendCommand(opener, server + '/file/report/download', param)
     return resp.read()
 
-def importResult(opener, server, fileName):
+
+def moveResult(opener, server, id, folder):
+    if folder == "":
+        return
+    
+    # Search for folder name (first occurrence)
+    tagList = listTags(opener, server)
+    tag = -1
+    for tempTag in tagList.keys():
+        if tagList[tempTag]==folder:
+            tag=tempTag
+            break
+    
+    # Create folder (if not exists)
+    if tag == -1:
+        print "Creating folder " + folder
+        param = urllib.urlencode({'name':folder, 'seq' : '1','json':'1'})
+        resp = sendCommand(opener,server + '/tag/create', param)
+        data = json.loads(resp.read())
+        resp.close()
+        tag = data['reply']['contents']['id']
+
+    # Move result
+    param = urllib.urlencode({'id':id, 'tags':tag,'seq' : '1','json':'1'})
+    resp = sendCommand(opener,server + '/tag/replace', param)
+    data = json.loads(resp.read())
+    resp.close()
+        
+
+def importResult(opener, server, fileName, folder=""):
     # Translate tab
     intab = "/\:"
     outtab = "___"
@@ -93,9 +144,16 @@ def importResult(opener, server, fileName):
     resp.close()
 
     # Importing
-    param = urllib.urlencode({'file' : fileNameModified, 'seq' : '1'})
-    resp = sendCommand(opener,server + '/file/report/import', param)
+    param = urllib.urlencode({'file' : fileNameModified, 'seq' : '1', 'json':'1'})
+    resp = sendCommand(opener,server + '/result/import', param)
+    data = json.loads(resp.read())
     resp.close()
+    
+    id =  data['reply']['contents']['result']['id']
+    
+    if folder!="":
+        moveResult(opener, server, id, folder)
+    
 
 def main():
     # Options
@@ -105,14 +163,17 @@ def main():
     parser.add_argument('-u', '--username', type=str, help='Username (if not specified, it will be prompted)', default='')
     parser.add_argument('-p', '--password', type=str, help='Password (if not specified, it will be prompted)', default='')
 
-    parser.add_argument('-l', action='store_true', help='List available results')
-
-    parser.add_argument('-e', action='store_true', help='Export results')
-    parser.add_argument('-f', '--filter', type=str, help='Filter for exporting, in Unix filename pattern matching style', default='')
-    parser.add_argument('--force', action='store_true', help='Force overwriting existing result')
-
-    parser.add_argument('-i', action='store_true', help='Import results')
-    parser.add_argument('-r', '--result', type=str, nargs='+', help='Result file list', default='')
+    parser.add_argument('-l', action='store_true', help='List available results (eventually filtered, see filter options)')
+    
+    parser.add_argument('-e', action='store_true', help='Export results (eventually filtered, see filter options)')
+    parser.add_argument('-n', '--name',   type=str, help='Filter for report name, in Unix filename pattern matching style (Ex: nessus-result -l -n "mytest*")', default='')
+    parser.add_argument('-f', '--folder', type=str, help='Export/List: Filter for report folder, in Unix filename pattern matching style (Ex: nessus-result -l -f "myfolder*") - Import: save result into the folder (create it if doesn\'t exists)', default='')
+    parser.add_argument('--force', action='store_true', help='Export: force overwriting existing file')
+    parser.add_argument('--skipdir', action='store_true', help='Export: Skip creation of directory')
+    
+    parser.add_argument('-i', '--import', dest = 'i', metavar='file', type=str, nargs='+', help='Import result/s', default=None)
+    
+    parser.add_argument('-V', '--version', action='version', help='Print version and exit', version='Nessus-result version 0.2')
 
     options = parser.parse_args()
 
@@ -121,7 +182,7 @@ def main():
         print("No server specified (-s)")
         parser.print_help()
         sys.exit(1)
-    if (options.l==False and options.e==False and options.i==False):
+    if (options.l==False and options.e==False and options.i==None):
         print("No action specified (-l | -e | -i)")
         parser.print_help()
         sys.exit(1)
@@ -140,38 +201,57 @@ def main():
 
     # List results
     if (options.l==True):
-        results = listResults(opener, server)
+        tags = listTags(opener, server)
+        results = listResults(opener, server, tags)
         for result in results:
-            print datetime.datetime.fromtimestamp(float(result['timestamp'])).strftime('%Y-%m-%d %H:%M:%S') + ' -- ' + result['name']
+            # Check matching folder
+            if (options.folder=='' or fnmatch.fnmatch(result['folder'],options.folder)):
+                # Check matching name
+                if (options.name=='' or fnmatch.fnmatch(result['name'],options.name)):
+                    print datetime.datetime.fromtimestamp(float(result['timestamp'])).strftime('%Y-%m-%d %H:%M:%S') + ' -- ' + result['folder'] + ' -- ' + result['name'] 
         sys.exit(0)
 
     # Export results
     if (options.e==True):
-        results = listResults(opener, server)
+        tags = listTags(opener, server)
+        results = listResults(opener, server, tags)
         for result in results:
-            # Check matching name
-            if (options.filter=='' or fnmatch.fnmatch(result['name'],options.filter)):
-                # Check exixting file
-                if (os.path.exists(result['name'] + '.nessus') and not options.force):
-                    print ("File " + result['name'] + '.nessus' + ' already exists ==> skipping (use --force to overwrite)')
-                else:
-                    print ("Exporting "+ result['name'] + ' ...'),
-                    content = exportResult(opener, server, result['id'])
-                    f = open(result['name'] + '.nessus', 'w')
-                    f.write(content)
-                    f.close()
-                    print "Done"
+            
+            # Check matching folder
+            if (options.folder=='' or fnmatch.fnmatch(result['folder'],options.folder)):
+                # Check matching name
+                if (options.name=='' or fnmatch.fnmatch(result['name'],options.name)):
+                    
+                    # Create directory
+                    folder = result['folder']
+                    if (options.skipdir): 
+                        filename =result['name'] + '.nessus'
+                    else:
+                        filename =folder + '/' + result['name'] + '.nessus'
+                        if not os.path.exists(folder):
+                            os.makedirs(folder)
+                        
+                    # Check existing file
+                    if (os.path.exists(filename) and not options.force):
+                        print ("File " + filename + ' (timestamp: ' + datetime.datetime.fromtimestamp(float(result['timestamp'])).strftime('%Y-%m-%d %H:%M:%S') + ') already exists ==> skipping (use --force to overwrite)')
+                    else:
+                        print ("Exporting "+ result['name'] + ' ...'),
+                        content = exportResult(opener, server, result['id'])
+                        f = open(filename, 'w')
+                        f.write(content)
+                        f.close()
+                        print "Done"
         sys.exit(0)
 
     # Import results
-    if (options.i==True):
+    if (options.i != None):
         # Check option
-        if (len(options.result)==0):
-            print "You have to specify at least one result file (-r)"
+        if (len(options.i)==0):
+            print "You have to specify at least one result file (-i)"
         else:
-            for fileName in options.result:
-                print ("Importing " + fileName + " ..."),
-                importResult(opener, server, fileName)
+            for fileName in options.i:
+                print ("Importing " + fileName + " ...\n"),
+                importResult(opener, server, fileName, options.folder)
                 print "Done"
         sys.exit(0)
 
