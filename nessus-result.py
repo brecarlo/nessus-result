@@ -187,6 +187,7 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+
     # Credentials
     username=options.username
     if (username==''):
@@ -195,9 +196,11 @@ def main():
     if (password==''):
         password = getpass.getpass()
 
+
     # Login
     server = 'https://' + options.server + ':' + options.port
     opener = login(server,username,password)
+
 
     # List results
     if (options.l==True):
@@ -211,12 +214,12 @@ def main():
                     print datetime.datetime.fromtimestamp(float(result['timestamp'])).strftime('%Y-%m-%d %H:%M:%S') + ' -- ' + result['folder'] + ' -- ' + result['name'] 
         sys.exit(0)
 
+
     # Export results
     if (options.e==True):
         tags = listTags(opener, server)
         results = listResults(opener, server, tags)
         for result in results:
-            
             # Check matching folder
             if (options.folder=='' or fnmatch.fnmatch(result['folder'],options.folder)):
                 # Check matching name
@@ -242,6 +245,7 @@ def main():
                         f.close()
                         print "Done"
         sys.exit(0)
+
 
     # Import results
     if (options.i != None):
