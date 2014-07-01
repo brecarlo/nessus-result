@@ -63,10 +63,11 @@ def listTags(opener, server):
 
     results={}
 
-    for result in data['reply']['contents']['tags']:
-        tagId = result['id']
-        tagName = result['name']
-        results[tagId]=tagName
+    if data['reply']['contents']['tags']!=None:         # Check Nessus < 5.2
+        for result in data['reply']['contents']['tags']:
+            tagId = result['id']
+            tagName = result['name']
+            results[tagId]=tagName
 
     return results
 
@@ -82,12 +83,19 @@ def listResults(opener, server, tags):
     for result in data['reply']['contents']['result']:
         resultId = result['id']
         name = result['name']
-        timestamp = result['timestamp']
-        tag = result['tags'][0]      
+        timestamp = 0
+        folder = ""     # For Nessus < 5.2
+        
+        
+        timestamp = result['creation_date']
+            
+        if 'tags' in result:
+            folder = tags[result['tags'][0]]
+                  
         # Select only 'completed' scan
         status = result['status']
         if (status=='completed'):
-            results.append({'id':resultId, 'name':name, 'timestamp':timestamp, 'folder' : tags[tag]})
+            results.append({'id':resultId, 'name':name, 'timestamp':timestamp, 'folder' : folder})
   
     return results
 
@@ -104,26 +112,28 @@ def moveResult(opener, server, id, folder):
     
     # Search for folder name (first occurrence)
     tagList = listTags(opener, server)
-    tag = -1
-    for tempTag in tagList.keys():
-        if tagList[tempTag]==folder:
-            tag=tempTag
-            break
     
-    # Create folder (if not exists)
-    if tag == -1:
-        print "Creating folder " + folder
-        param = urllib.urlencode({'name':folder, 'seq' : '1','json':'1'})
-        resp = sendCommand(opener,server + '/tag/create', param)
+    if tagList:      # Check Nessus < 5.2
+        tag = -1
+        for tempTag in tagList.keys():
+            if tagList[tempTag]==folder:
+                tag=tempTag
+                break
+        
+        # Create folder (if not exists)
+        if tag == -1:
+            print "Creating folder " + folder
+            param = urllib.urlencode({'name':folder, 'seq' : '1','json':'1'})
+            resp = sendCommand(opener,server + '/tag/create', param)
+            data = json.loads(resp.read())
+            resp.close()
+            tag = data['reply']['contents']['id']
+    
+        # Move result
+        param = urllib.urlencode({'id':id, 'tags':tag,'seq' : '1','json':'1'})
+        resp = sendCommand(opener,server + '/tag/replace', param)
         data = json.loads(resp.read())
         resp.close()
-        tag = data['reply']['contents']['id']
-
-    # Move result
-    param = urllib.urlencode({'id':id, 'tags':tag,'seq' : '1','json':'1'})
-    resp = sendCommand(opener,server + '/tag/replace', param)
-    data = json.loads(resp.read())
-    resp.close()
         
 
 def importResult(opener, server, fileName, folder=""):
@@ -173,7 +183,7 @@ def main():
     
     parser.add_argument('-i', '--import', dest = 'i', metavar='file', type=str, nargs='+', help='Import result/s', default=None)
     
-    parser.add_argument('-V', '--version', action='version', help='Print version and exit', version='Nessus-result version 0.2')
+    parser.add_argument('-V', '--version', action='version', help='Print version and exit', version='Nessus-result version 0.2.1')
 
     options = parser.parse_args()
 
@@ -227,10 +237,11 @@ def main():
                     
                     # Create directory
                     folder = result['folder']
-                    if (options.skipdir): 
+                    if (options.skipdir or folder==''): 
                         filename =result['name'] + '.nessus'
                     else:
-                        filename =folder + '/' + result['name'] + '.nessus'
+                        #filename =folder + '/' + result['name'] + '.nessus'
+                        filename =os.path.join(folder,result['name'] + '.nessus')
                         if not os.path.exists(folder):
                             os.makedirs(folder)
                         

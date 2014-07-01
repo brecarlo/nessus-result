@@ -1,5 +1,8 @@
 	ChangeLog file for nessus-result
-	
+
+Changes in 0.2.1
+- Manage exception for Nessus version < 5.2 (no folder) 
+
 Changes in 0.2
 - Add folder management (see help)
 - Add "print version" argument
